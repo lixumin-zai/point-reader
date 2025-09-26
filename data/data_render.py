@@ -3,6 +3,7 @@ import random
 import string
 import json
 from typing import List, Tuple, Dict, Optional
+import math
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -91,6 +92,38 @@ def random_color(bright: bool = False) -> Tuple[int, int, int]:
         return tuple(random.randint(80, 255) for _ in range(3))
     return tuple(random.randint(0, 200) for _ in range(3))
 
+# 旋转辅助：点绕中心旋转
+def rotate_point(px: float, py: float, cx: float, cy: float, angle_deg: float) -> Tuple[float, float]:
+    rad = -math.radians(angle_deg)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    dx, dy = px - cx, py - cy
+    x2 = cos_a * dx - sin_a * dy + cx
+    y2 = sin_a * dx + cos_a * dy + cy
+    return x2, y2
+
+# 旋转后新图的左上角偏移（expand=True时），根据原图四角旋转坐标的最小值计算
+def rotation_shift_for_image(w: int, h: int, angle_deg: float) -> Tuple[float, float]:
+    cx, cy = w / 2.0, h / 2.0
+    corners = [(0, 0), (w, 0), (w, h), (0, h)]
+    rot = [rotate_point(x, y, cx, cy, angle_deg) for (x, y) in corners]
+    min_x = min(p[0] for p in rot)
+    min_y = min(p[1] for p in rot)
+    return min_x, min_y
+
+# 从未旋转的 axis-aligned bbox 生成倾斜最小矩形的四点（canvas坐标）
+def obb_from_abox(abox: Tuple[int, int, int, int], img_w: int, img_h: int, angle_deg: float,
+                  x_on_canvas: int, y_on_canvas: int) -> List[List[float]]:
+    x1, y1, x2, y2 = abox
+    cx, cy = img_w / 2.0, img_h / 2.0
+    # 未旋转 bbox 的四角（位于原图坐标系）
+    corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    # 旋转到新坐标
+    rot_corners = [rotate_point(x, y, cx, cy, angle_deg) for (x, y) in corners]
+    # expand=True 会使新图左上角为 (min_x, min_y)，因此要减去它使坐标转为旋转后图像坐标
+    min_x, min_y = rotation_shift_for_image(img_w, img_h, angle_deg)
+    shifted = [(x - min_x + x_on_canvas, y - min_y + y_on_canvas) for (x, y) in rot_corners]
+    # 返回四点多边形
+    return [[float(f"{x:.2f}"), float(f"{y:.2f}")] for (x, y) in shifted]
 
 # 修改：返回 pad，便于计算子字符串的绝对位置
 def make_item_image(text: str, font: ImageFont.ImageFont, fill: Tuple[int, int, int]) -> Tuple[Image.Image, Tuple[int, int], int]:
@@ -140,49 +173,55 @@ def place_items_on_canvas(
     return placed
 
 
-# 新增：计算单个条目中所有连续子字符串的中心点（画布坐标）
+# 计算单个条目中所有连续子字符串的中心点、轴对齐 bbox 与倾斜最小矩形（画布坐标）
 def compute_substring_annotations(item: Dict) -> List[Dict]:
-     text: str = item["text"]
-     font: ImageFont.ImageFont = item["font"]
-     pad: int = item["pad"]
-     img: Image.Image = item["img"]
-     x0: int = item["x"]
-     y0: int = item["y"]
- 
-     # 用临时绘制器获取完整文本 bbox 与前缀宽度
-     tmp_img = Image.new("L", (1, 1), 0)
-     dtmp = ImageDraw.Draw(tmp_img)
-     full_bbox = dtmp.textbbox((0, 0), text, font=font)
-     # 绘制起点（已考虑字体负偏移）
-     origin_x = pad - full_bbox[0]
-     origin_y = pad - full_bbox[1]
- 
-     subs: List[Dict] = []
-     n = len(text)
-     for i in range(n):
-         # 计算前缀进位宽度（相对完整文本起点）
-         prefix_adv = dtmp.textlength(text[:i], font=font)
-         for j in range(i + 1, n + 1):
-             s = text[i:j]
-             # 为当前子串创建透明覆盖层并绘制，以真实像素获取 bbox
-             overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
-             od = ImageDraw.Draw(overlay)
-             od.text((origin_x + prefix_adv, origin_y), s, font=font, fill=(255, 255, 255, 255))
-             abox = overlay.split()[3].getbbox()  # alpha 通道的非空区域 bbox
-             if not abox:
-                 continue
-             bx1 = x0 + abox[0]
-             by1 = y0 + abox[1]
-             bx2 = x0 + abox[2]
-             by2 = y0 + abox[3]
-             cx = (bx1 + bx2) / 2.0
-             cy = (by1 + by2) / 2.0
-             subs.append({
-                 "text": s,
-                 "center": [float(f"{cx:.2f}"), float(f"{cy:.2f}")],
-                 "bbox": [int(bx1), int(by1), int(bx2), int(by2)],
-             })
-     return subs
+    text: str = item["text"]
+    font: ImageFont.ImageFont = item["font"]
+    pad: int = item["pad"]
+    img: Image.Image = item["img"]  # 原始未旋转小图
+    x0: int = item["x"]              # 旋转后小图放置在画布上的左上角
+    y0: int = item["y"]
+    angle: float = item.get("angle", 0.0)
+    W, H = img.size
+
+    # 用临时绘制器获取完整文本 bbox 与前缀宽度
+    tmp_img = Image.new("L", (1, 1), 0)
+    dtmp = ImageDraw.Draw(tmp_img)
+    full_bbox = dtmp.textbbox((0, 0), text, font=font)
+    # 绘制起点（已考虑字体负偏移）
+    origin_x = pad - full_bbox[0]
+    origin_y = pad - full_bbox[1]
+
+    subs: List[Dict] = []
+    n = len(text)
+    for i in range(n):
+        # 计算前缀进位宽度（相对完整文本起点）
+        prefix_adv = dtmp.textlength(text[:i], font=font)
+        for j in range(i + 1, n + 1):
+            s = text[i:j]
+            # 为当前子串创建透明覆盖层并绘制，以真实像素获取 bbox（未旋转坐标系）
+            overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            od = ImageDraw.Draw(overlay)
+            od.text((origin_x + prefix_adv, origin_y), s, font=font, fill=(255, 255, 255, 255))
+            abox = overlay.split()[3].getbbox()
+            if not abox:
+                continue
+            # 倾斜最小矩形：从未旋转 abox 派生 OBB 的四点（画布坐标）
+            obb = obb_from_abox(abox, W, H, angle, x_on_canvas=x0, y_on_canvas=y0)
+            # 轴对齐 bbox：由 OBB 四点取 min/max 得到（画布坐标）
+            xs = [p[0] for p in obb]
+            ys = [p[1] for p in obb]
+            bx1, by1, bx2, by2 = min(xs), min(ys), max(xs), max(ys)
+            # 中心点：四点平均
+            cx = sum(xs) / 4.0
+            cy = sum(ys) / 4.0
+            subs.append({
+                "text": s,
+                "center": [float(f"{cx:.2f}"), float(f"{cy:.2f}")],
+                "bbox": [int(bx1), int(by1), int(bx2), int(by2)],
+                "obb": obb,
+            })
+    return subs
 
 
 def render_image(
@@ -195,6 +234,8 @@ def render_image(
     max_font: int,
     fonts: List[str],
     bg_color: Tuple[int, int, int] = (255, 255, 255),
+    min_angle: int = -25,
+    max_angle: int = 25,
 ) -> Tuple[Image.Image, List[Dict], List[Dict]]:
     # 先生成所有item图片与尺寸
     raw_items = []
@@ -205,12 +246,19 @@ def render_image(
         font = safe_load_font(font_path, size)
         color = random_color()
         item_img, (W, H), pad = make_item_image(text, font, color)
+        # 随机旋转角度
+        angle = random.uniform(min_angle, max_angle)
+        rotated = item_img.rotate(angle, expand=True, resample=Image.BICUBIC)
+        Wr, Hr = rotated.size
         raw_items.append({
             "text": text,
-            "img": item_img,
-            "size": (W, H),
+            "img": item_img,        # 原始未旋转小图
+            "img_rot": rotated,      # 旋转后小图
+            "size": (Wr, Hr),        # 用旋转后尺寸进行布局
             "font": font,
             "pad": pad,
+            "angle": angle,
+            "orig_size": (W, H),
         })
 
     placed = place_items_on_canvas(width, height, raw_items)
@@ -218,23 +266,33 @@ def render_image(
     # 合成到大图
     canvas = Image.new("RGB", (width, height), bg_color)
     for it in placed:
-        canvas.alpha_composite(it["img"], (it["x"], it["y"])) if canvas.mode == "RGBA" else canvas.paste(it["img"], (it["x"], it["y"]), it["img"]) 
+        # 合成旋转后的小图
+        canvas.paste(it["img_rot"], (it["x"], it["y"]), it["img_rot"]) 
 
-    # 输出：条目文本与中心点与bbox
+    # 输出：条目文本与中心点与bbox/obb
     annotations: List[Dict] = []
     for it in placed:
-        abox = it["img"].split()[3].getbbox()
-        if abox is None:
-            bx1, by1, bx2, by2 = it["x"], it["y"], it["x"] + it["size"][0], it["y"] + it["size"][1]
-        else:
-            bx1, by1, bx2, by2 = it["x"] + abox[0], it["y"] + abox[1], it["x"] + abox[2], it["y"] + abox[3]
+        # 未旋转小图内的 tight bbox（不含 padding）
+        abox0 = it["img"].split()[3].getbbox()
+        if abox0 is None:
+            abox0 = (0, 0, it["orig_size"][0], it["orig_size"][1])
+        # 倾斜最小矩形：四点
+        obb = obb_from_abox(abox0, it["orig_size"][0], it["orig_size"][1], it.get("angle", 0.0), it["x"], it["y"]) 
+        # 轴对齐 bbox：由 OBB 的四点取 min/max
+        xs = [p[0] for p in obb]
+        ys = [p[1] for p in obb]
+        bx1, by1, bx2, by2 = min(xs), min(ys), max(xs), max(ys)
+        # 中心点：四点平均
+        cx = sum(xs) / 4.0
+        cy = sum(ys) / 4.0
         annotations.append({
             "text": it["text"],
-            "center": [float(f"{it['center'][0]:.2f}"), float(f"{it['center'][1]:.2f}")],
+            "center": [float(f"{cx:.2f}"), float(f"{cy:.2f}")],
             "bbox": [int(bx1), int(by1), int(bx2), int(by2)],
+            "obb": obb,
         })
 
-    # 输出：所有连续子字符串的中心点与bbox
+    # 输出：所有连续子字符串的中心点与bbox/obb
     sub_annotations: List[Dict] = []
     for it in placed:
         sub_annotations.extend(compute_substring_annotations(it))
@@ -327,13 +385,13 @@ def main():
         n_images=100,
         width=640,
         height=480,
-        min_items=5,
+        min_items=1,
         max_items=10,
         min_len=1,
         max_len=10,
         min_font=18,
         max_font=48,
-        seed=None,
+        seed=1030,
         fonts_dir=None,
         # 你可以传入自己偏好的家族列表，例如：
         # prefer_families=["Arial", "Helvetica", "Menlo"]

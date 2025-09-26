@@ -219,11 +219,17 @@
 
       for (const m of matches) {
         if (state.drawMode === 'bbox') {
-          const [x1, y1, x2, y2] = m.bbox || [];
-          if ([x1,y1,x2,y2].every(Number.isFinite)) {
-            ctx.strokeRect(x1 + 0.5, y1 + 0.5, (x2 - x1), (y2 - y1));
-            // draw label
-            drawTag(ctx, m.text, x1, y1, color);
+          const obb = m.obb;
+          if (Array.isArray(obb) && obb.length === 4 && obb.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(Number.isFinite))) {
+            drawPolygon(ctx, obb, color);
+            const [cx, cy] = computeCentroid(obb);
+            drawTag(ctx, m.text, cx, cy, color, true);
+          } else {
+            const [x1, y1, x2, y2] = m.bbox || [];
+            if ([x1,y1,x2,y2].every(Number.isFinite)) {
+              ctx.strokeRect(x1 + 0.5, y1 + 0.5, (x2 - x1), (y2 - y1));
+              drawTag(ctx, m.text, x1, y1, color);
+            }
           }
         } else {
           const [cx, cy] = m.center || [];
@@ -247,6 +253,7 @@
       ctx.moveTo(x - size, y);
       ctx.lineTo(x + size, y);
       ctx.moveTo(x, y - size);
+      ctx.lineTo(x, y + size);
       ctx.lineTo(x, y + size);
       ctx.stroke();
       ctx.beginPath();
@@ -287,6 +294,29 @@
       ctx.arcTo(x, y + h, x, y, r);
       ctx.arcTo(x, y, x + w, y, r);
       ctx.closePath();
+    }
+
+    // 新增：绘制倾斜最小矩形（四点多边形）
+    function drawPolygon(ctx, points, color = '#22c55e') {
+      ctx.save();
+      ctx.setLineDash([6,4]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(points[0][0] + 0.5, points[0][1] + 0.5);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i][0] + 0.5, points[i][1] + 0.5);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 新增：计算多边形重心（用于放置标签）
+    function computeCentroid(points) {
+      let sx = 0, sy = 0;
+      for (const [x,y] of points) { sx += x; sy += y; }
+      return [sx / points.length, sy / points.length];
     }
 
     function applySearch() { draw(); }
