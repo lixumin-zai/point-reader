@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Point-Reader 标注可视化</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --danger: #ef4444;
+      --border: #27304a;
+      --btn: #1f2937;
+      --btn-hover: #374151;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+      color: var(--text);
+    }
+    h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; letter-spacing: 0.5px; }
+    .card {
+      background: rgba(17, 24, 39, 0.7);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      backdrop-filter: blur(6px);
+      padding: 14px;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .controls > * { min-width: 0; }
+    label { color: var(--muted); font-size: 13px; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      background: #0b1220; color: var(--text);
+      outline: none; transition: border-color .2s;
+    }
+    input[type="text"]:focus { border-color: #3b82f6; }
+    button {
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      background: var(--btn); color: var(--text); cursor: pointer; user-select: none;
+      transition: background .15s, transform .05s;
+    }
+    button:hover { background: var(--btn-hover); }
+    button:active { transform: translateY(1px); }
+    .btn-accent { border-color: #14532d; background: #064e3b; }
+    .btn-accent:hover { background: #065f46; }
+    .btn-outline { background: transparent; }
+    .status { font-size: 13px; color: var(--muted); }
+    .pill { font-size: 12px; color: #a7f3d0; background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35); padding: 3px 8px; border-radius: 999px; }
+
+    .canvas-wrap {
+      position: relative; width: 100%; overflow: auto; border-radius: 12px; border: 1px solid var(--border);
+      background: #020617;
+    }
+    canvas { display: block; max-width: 100%; height: auto; }
+
+    .row { display: contents; }
+    .col-3 { grid-column: span 3; }
+    .col-2 { grid-column: span 2; }
+    .col-1 { grid-column: span 1; }
+    .col-12 { grid-column: span 12; }
+    .right { text-align: right; }
+    .flex { display: flex; align-items: center; gap: 8px; }
+    .spacer { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Point-Reader 可视化</h1>
+    <div class="controls">
+      <div class="row col-3">
+        <label for="sampleInput">样例编号 / 名称</label>
+        <input id="sampleInput" type="text" placeholder="例如: 6 / 00006 / sample_00006" />
+      </div>
+      <div class="row col-2">
+        <label>&nbsp;</label>
+        <div class="flex">
+          <button id="prevBtn" title="上一张">上一张</button>
+          <button id="nextBtn" title="下一张">下一张</button>
+          <button id="loadBtn" class="btn-accent" title="加载">加载</button>
+        </div>
+      </div>
+      <div class="row col-4">
+        <label for="queryInput">搜索文本</label>
+        <input id="queryInput" type="text" placeholder="输入需要匹配的字符串 (必填)" />
+      </div>
+      <div class="row col-1">
+        <label for="caseSensitive">选项</label>
+        <div class="flex">
+          <label class="flex"><input id="caseSensitive" type="checkbox" /> 区分大小写</label>
+        </div>
+      </div>
+      <div class="row col-2 right">
+        <label>&nbsp;</label>
+        <div class="flex right">
+          <button id="toggleModeBtn" class="btn-outline" title="切换绘制模式">切换为绘制bbox</button>
+          <button id="applyBtn" class="btn-accent" title="应用">应用搜索</button>
+        </div>
+      </div>
+      <div class="row col-12 right">
+        <span id="status" class="status">就绪</span>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // 新增：防抖工具，避免每次键入都频繁重绘
+    function debounce(fn, delay = 120) {
+      let t;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn.apply(null, args), delay);
+      };
+    }
+
+    const state = {
+      baseName: 'sample_00000',
+      index: 0,
+      drawMode: 'center', // 'center' | 'bbox'
+      image: null,
+      json: null,
+    };
+
+    function pad5(n) { return String(n).padStart(5, '0'); }
+
+    function normalizeSample(input) {
+      let s = (input || '').trim();
+      if (!s) return { base: state.baseName, index: state.index };
+      // remove extension if any
+      s = s.replace(/\.(json|png)$/i, '');
+      if (!s.startsWith('sample_')) {
+        // if numeric -> pad
+        if (/^\d+$/.test(s)) {
+          s = 'sample_' + pad5(parseInt(s, 10));
+        } else {
+          // assume already a name without prefix/extension
+          s = 'sample_' + s;
+        }
+      }
+      const m = s.match(/sample_(\d{1,})$/);
+      const idx = m ? parseInt(m[1], 10) : state.index;
+      return { base: s, index: idx };
+    }
+
+    async function loadSample(baseName) {
+      const imgPath = `output/images/${baseName}.png`;
+      const jsonPath = `output/annotations/${baseName}.json`;
+      $('status').textContent = `加载中: ${baseName} ...`;
+      try {
+        const [img, meta] = await Promise.all([
+          loadImage(imgPath),
+          fetch(jsonPath).then(r => { if (!r.ok) throw new Error(`无法读取 ${jsonPath}`); return r.json(); })
+        ]);
+        state.image = img;
+        state.json = meta;
+        state.baseName = baseName;
+        const m = baseName.match(/sample_(\d{1,})$/);
+        state.index = m ? parseInt(m[1], 10) : state.index;
+        $('sampleInput').value = baseName;
+        draw();
+        $('status').innerHTML = `已加载 <span class="pill">${baseName}</span>，图像尺寸 ${img.naturalWidth}×${img.naturalHeight}，共有子串 ${meta.substrings?.length ?? 0} 个`;
+      } catch (err) {
+        console.error(err);
+        $('status').textContent = err.message || String(err);
+      }
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`无法加载图片: ${src}`));
+        img.src = src + `?t=${Date.now()}`; // cache busting
+      });
+    }
+
+    function draw() {
+      const canvas = $('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!state.image) { ctx.clearRect(0,0,canvas.width,canvas.height); return; }
+      // resize canvas to image
+      canvas.width = state.image.naturalWidth;
+      canvas.height = state.image.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(state.image, 0, 0);
+
+      // draw matches if query present
+      const query = $('queryInput').value.trim();
+      if (!query || !state.json) return;
+      const caseSensitive = $('caseSensitive').checked;
+      const subs = Array.isArray(state.json.substrings) ? state.json.substrings : [];
+      const match = (t) => caseSensitive ? (t === query) : (String(t).toLowerCase() === query.toLowerCase());
+      const matches = subs.filter(s => match(s.text));
+
+      const color = '#22c55e';
+      const dash = [6, 4];
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.setLineDash(dash);
+
+      for (const m of matches) {
+        if (state.drawMode === 'bbox') {
+          const [x1, y1, x2, y2] = m.bbox || [];
+          if ([x1,y1,x2,y2].every(Number.isFinite)) {
+            ctx.strokeRect(x1 + 0.5, y1 + 0.5, (x2 - x1), (y2 - y1));
+            // draw label
+            drawTag(ctx, m.text, x1, y1, color);
+          }
+        } else {
+          const [cx, cy] = m.center || [];
+          if ([cx, cy].every(Number.isFinite)) {
+            drawCross(ctx, cx, cy, 6, color);
+            drawTag(ctx, m.text, cx + 8, cy - 8, color, true);
+          }
+        }
+      }
+      ctx.restore();
+
+      $('status').innerHTML = `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个`;
+    }
+
+    function drawCross(ctx, x, y, size = 6, color = '#22c55e') {
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x - size, y);
+      ctx.lineTo(x + size, y);
+      ctx.moveTo(x, y - size);
+      ctx.lineTo(x, y + size);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function drawTag(ctx, text, x, y, color = '#22c55e', centered = false) {
+      const padX = 6, padY = 4;
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.font = '12px ui-sans-serif, -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial';
+      const metrics = ctx.measureText(text);
+      const w = metrics.width + padX * 2;
+      const h = 16 + padY * 2;
+      let tx = x, ty = y;
+      if (centered) { tx = x - w/2; ty = y - h/2; }
+      // background
+      ctx.fillStyle = 'rgba(2,6,23,0.7)';
+      ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+      roundRect(ctx, tx, ty - h, w, h, 6);
+      ctx.fill();
+      ctx.stroke();
+      // text
+      ctx.fillStyle = color;
+      ctx.fillText(text, tx + padX, ty - h + padY + 12);
+      ctx.restore();
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      const min = Math.min(w, h) / 2; r = Math.min(r, min);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function applySearch() { draw(); }
+
+    function toggleMode() {
+      state.drawMode = state.drawMode === 'center' ? 'bbox' : 'center';
+      $('toggleModeBtn').textContent = state.drawMode === 'center' ? '切换为绘制bbox' : '切换为绘制中点';
+      draw();
+    }
+
+    function prevSample() {
+      const idx = Math.max(0, state.index - 1);
+      const base = 'sample_' + pad5(idx);
+      loadSample(base);
+    }
+
+    function nextSample() {
+      const idx = state.index + 1;
+      const base = 'sample_' + pad5(idx);
+      loadSample(base);
+    }
+
+    function onLoadClick() {
+      const { base } = normalizeSample($('sampleInput').value);
+      loadSample(base);
+    }
+
+    // 新增：创建防抖后的绘制函数
+    const debouncedDraw = debounce(draw, 120);
+
+    // Events
+    $('loadBtn').addEventListener('click', onLoadClick);
+    $('applyBtn').addEventListener('click', applySearch);
+    $('toggleModeBtn').addEventListener('click', toggleMode);
+    $('prevBtn').addEventListener('click', prevSample);
+    $('nextBtn').addEventListener('click', nextSample);
+    // 改为实时搜索：输入即触发重绘
+    $('queryInput').addEventListener('input', debouncedDraw);
+    // 仍然保留回车作为备用
+    $('queryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') applySearch(); });
+    // 大小写选项变化时立即重绘
+    $('caseSensitive').addEventListener('change', draw);
+    $('sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') onLoadClick(); });
+
+    // Init: try load 00000
+    (function init() {
+      const { base, index } = normalizeSample('00000');
+      state.index = index; state.baseName = base;
+      $('sampleInput').value = base;
+      loadSample(base).catch(() => {
+        $('status').textContent = '请在上方输入样例编号或名称后点击加载';
+      });
+    })();
+  </script>
+</body>
+</html>
