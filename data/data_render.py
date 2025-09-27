@@ -6,6 +6,7 @@ from typing import List, Tuple, Dict, Optional
 import math
 
 from PIL import Image, ImageDraw, ImageFont
+import tqdm
 
 # 允许的字符集：1-9, a-z, A-Z（不包含0）
 ALPHABET = "123456789" + string.ascii_letters
@@ -355,7 +356,7 @@ class DatasetRenderer:
         # 使用类的 prefer_families 进行过滤；若未提供则使用默认 COMMON_FAMILIES
         fonts = prefer_common_fonts(fonts, families=self.prefer_families)
 
-        for i in range(self.n_images):
+        for i in tqdm.tqdm(range(self.n_images)):
             n_items = random.randint(self.min_items, self.max_items)
             img, anns, sub_anns = render_image(
                 self.width,
@@ -381,7 +382,7 @@ class DatasetRenderer:
 def main():
     # 通过类来控制参数，不使用 argparse
     renderer = DatasetRenderer(
-        out_dir="./output",
+        out_dir="../output",
         n_images=100,
         width=640,
         height=480,

@@ -106,8 +106,8 @@ def process_annotation(path: str,
                        max_questions: Optional[int] = None) -> List[Dict]:
     """
     将生成的标注（output/annotations/*.json）解析为 Q/A 样本：
-    - question: "detect {xx}"，answer: 多个符合字符的 obb，用 <spe> 分隔，每个 obb 由 8 个 <loc_..> 组成
-    - question: "points out {xxx}"，answer: 多个符合字符的中心点，用 <spe> 分隔，每个点由 2 个 <loc_..> 组成
+    - question: "detect {xx}"，answer: 多个符合字符的 obb，用 <sep> 分隔，每个 obb 由 8 个 <loc_..> 组成
+    - question: "points out {xxx}"，answer: 多个符合字符的中心点，用 <sep> 分隔，每个点由 2 个 <loc_..> 组成
     - question: "what text on point <loc_..><loc_..>"，answer: 该点所在单个字符（正样本）；或 "None"（负样本）
     返回同一张图的多个样本。
     如果提供 max_questions，则对该图片的样本随机下采样到最多 max_questions 条。
@@ -148,8 +148,10 @@ def process_annotation(path: str,
                 # 回退到 bbox 的四角
                 x1, y1, x2, y2 = s.get("bbox", [0, 0, 0, 0])
                 obb = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-            obb_segments.append(_format_obb_tokens(obb, width, height))
-        detect_answer = "<spe>".join(obb_segments) if obb_segments else "None"
+                obb_segments.append(obb)
+        obb_segments = sorted(obb_segments, key=lambda x:x[0][0]) 
+        obb_segments = [_format_obb_tokens(obb, width, height) for obb in obb_segments]
+        detect_answer = "<sep>".join(obb_segments) if obb_segments else "None"
         samples.append({
             "image": image_name,
             "question": f"detect {display_text}",
@@ -165,8 +167,12 @@ def process_annotation(path: str,
                 x1, y1, x2, y2 = s.get("bbox", [0, 0, 0, 0])
                 cx = (x1 + x2) / 2.0
                 cy = (y1 + y2) / 2.0
-            point_segments.append(_format_point_token(cx, cy, width, height))
-        points_answer = "<spe>".join(point_segments) if point_segments else "None"
+            point_segments.append((cx, cy))
+
+        point_segments = sorted(point_segments, key=lambda x:x[0]) 
+        point_segments = [_format_point_token(cx, cy, width, height) for cx, cy in point_segments]
+
+        points_answer = "<sep>".join(point_segments) if point_segments else "None"
         samples.append({
             "image": image_name,
             "question": f"points out {display_text}",
@@ -227,9 +233,9 @@ def process_annotation(path: str,
 
 
 def build_precomputed_dataset(
-    out_path: str = "./output/qa_samples.jsonl",
-    ann_dir: str = "./output/annotations",
-    images_dir: str = "./output/images",
+    out_path: str = "../output/qa_samples.jsonl",
+    ann_dir: str = "../output/annotations",
+    images_dir: str = "../output/images",
     case_sensitive: bool = True,
     max_questions_per_image: Optional[int] = 10,
 ) -> int:
@@ -260,5 +266,5 @@ def build_precomputed_dataset(
 if __name__ == "__main__":
     # 预计算并写入 JSONL，供 Dataset 直接读取
     out_jsonl = "../output/qa_samples.jsonl"
-    n = build_precomputed_dataset(out_path=out_jsonl, max_questions_per_image=10)
+    n = build_precomputed_dataset(out_path=out_jsonl, max_questions_per_image=20)
     print(f"Precomputed samples: {n}, saved to: {os.path.abspath(out_jsonl)}")
