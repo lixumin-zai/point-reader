@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Point-Reader 标注可视化</title>
+  <title>Point-Reader 可视化工具</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -11,162 +11,324 @@
       --text: #e5e7eb;
       --muted: #9ca3af;
       --accent: #22c55e;
+      --accent-dark: #064e3b;
+      --accent-hover: #065f46;
+      --accent-border: #14532d;
       --danger: #ef4444;
-      --border: #27304a;
+      --border: #334155;
+      --input-bg: #020617;
       --btn: #1f2937;
       --btn-hover: #374151;
+      --focus-ring: rgba(59, 130, 246, 0.4);
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      background: linear-gradient(180deg, #0b1220 0%, #0f172a 100%);
+      background-color: var(--bg);
+      background-image: radial-gradient(circle at 1px 1px, rgba(200, 200, 200, 0.1) 1px, transparent 0);
+      background-size: 24px 24px;
+      color: var(--text);
+      min-height: 100vh;
+    }
+    
+    .app-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .app-header {
+      background: rgba(17, 24, 39, 0.8);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      backdrop-filter: blur(8px);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    h1 {
+      font-size: 20px; font-weight: 600; margin: 0;
+    }
+
+    .app-nav {
+      display: flex;
+      background: var(--input-bg);
+      border-radius: 10px;
+      padding: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .nav-btn {
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .nav-btn:hover {
       color: var(--text);
     }
-    h1 { font-size: 20px; font-weight: 600; margin: 0 0 12px; letter-spacing: 0.5px; }
+    .nav-btn.active {
+      background: var(--btn-hover);
+      color: var(--text);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+
     .card {
-      background: rgba(17, 24, 39, 0.7);
+      background: rgba(17, 24, 39, 0.8);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 16px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.35);
-      backdrop-filter: blur(6px);
-      padding: 14px;
+      backdrop-filter: blur(8px);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    h2 {
+      font-size: 18px; font-weight: 600; margin: 0 0 8px;
+      padding-bottom: 16px; border-bottom: 1px solid var(--border);
     }
     .controls {
       display: grid;
       grid-template-columns: repeat(12, 1fr);
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 12px;
+      gap: 16px 12px;
+      align-items: start;
     }
-    .controls > * { min-width: 0; }
-    label { color: var(--muted); font-size: 13px; }
-    input[type="text"] {
-      width: 100%;
-      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
-      background: #0b1220; color: var(--text);
-      outline: none; transition: border-color .2s;
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
-    input[type="text"]:focus { border-color: #3b82f6; }
+    label { color: var(--muted); font-size: 13px; font-weight: 500; user-select: none; }
+    
+    input[type="text"], select {
+      width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--input-bg); color: var(--text); font-size: 14px;
+      outline: none; transition: all .2s;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
+    
     button {
-      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px;
       background: var(--btn); color: var(--text); cursor: pointer; user-select: none;
-      transition: background .15s, transform .05s;
+      font-size: 14px; font-weight: 500;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      transition: background .15s, transform .05s, box-shadow .2s;
     }
     button:hover { background: var(--btn-hover); }
     button:active { transform: translateY(1px); }
-    .btn-accent { border-color: #14532d; background: #064e3b; }
-    .btn-accent:hover { background: #065f46; }
+    button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+    button svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; }
+    
+    .btn-accent { border-color: var(--accent-border); background: var(--accent-dark); }
+    .btn-accent:hover { background: var(--accent-hover); }
     .btn-outline { background: transparent; }
+    .btn-icon { padding: 0; width: 40px; flex-shrink: 0; }
+    
+    .action-group { align-self: end; }
+    .button-group { display: flex; gap: 8px; }
+
+    .checkbox-group {
+      align-self: end; height: 40px;
+      display: flex; align-items: center; justify-content: flex-start;
+    }
+    .checkbox-group label {
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      color: var(--text); font-size: 14px;
+    }
+    
+    .status-bar {
+      margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border);
+    }
     .status { font-size: 13px; color: var(--muted); }
-    .pill { font-size: 12px; color: #a7f3d0; background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35); padding: 3px 8px; border-radius: 999px; }
+    .pill { font-size: 12px; color: #a7f3d0; background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35); padding: 3px 8px; border-radius: 999px; font-weight: 500;}
 
     .canvas-wrap {
       position: relative; width: 100%; overflow: auto; border-radius: 12px; border: 1px solid var(--border);
-      background: #020617;
+      background: var(--input-bg);
     }
-    canvas { display: block; max-width: 100%; height: auto; }
+    canvas { display: block; max-width: 100%; height: auto; margin: auto; }
 
-    .row { display: contents; }
-    .col-3 { grid-column: span 3; }
-    .col-2 { grid-column: span 2; }
-    .col-1 { grid-column: span 1; }
+    .col-1 { grid-column: span 1; } .col-2 { grid-column: span 2; }
+    .col-3 { grid-column: span 3; } .col-4 { grid-column: span 4; }
+    .col-5 { grid-column: span 5; } .col-7 { grid-column: span 7; }
     .col-12 { grid-column: span 12; }
-    .right { text-align: right; }
-    .flex { display: flex; align-items: center; gap: 8px; }
-    .spacer { flex: 1; }
+    
+    .hidden { display: none !important; }
+
+    @media (max-width: 1024px) {
+      .col-lg-2 { grid-column: span 2; } .col-lg-3 { grid-column: span 3; }
+      .col-lg-4 { grid-column: span 4; } .col-lg-5 { grid-column: span 5; }
+      .col-lg-6 { grid-column: span 6; } .col-lg-12 { grid-column: span 12; }
+    }
+    @media (max-width: 768px) {
+      body { padding: 8px; }
+      .app-header { flex-direction: column; align-items: stretch; }
+      .controls { grid-template-columns: 1fr; }
+      .col-1,.col-2,.col-3,.col-4,.col-5,.col-7,.col-12,
+      .col-lg-2,.col-lg-3,.col-lg-4,.col-lg-5,.col-lg-6,.col-lg-12 {
+        grid-column: span 1;
+      }
+      .action-group, .checkbox-group { align-self: stretch; }
+      .button-group button { flex: 1; }
+    }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>Point-Reader 可视化</h1>
-    <div class="controls">
-      <div class="row col-3">
-        <label for="sampleInput">样例编号 / 名称</label>
-        <input id="sampleInput" type="text" placeholder="例如: 6 / 00006 / sample_00006" />
-      </div>
-      <div class="row col-2">
-        <label>&nbsp;</label>
-        <div class="flex">
-          <button id="prevBtn" title="上一张">上一张</button>
-          <button id="nextBtn" title="下一张">下一张</button>
-          <button id="loadBtn" class="btn-accent" title="加载">加载</button>
+
+  <div class="app-container">
+    <header class="app-header">
+      <h1 id="main-title">Point-Reader 标注可视化</h1>
+      <nav class="app-nav">
+        <button id="nav-btn-pr" class="nav-btn active">标注可视化</button>
+        <button id="nav-btn-token" class="nav-btn">Token 可视化</button>
+      </nav>
+    </header>
+
+    <!-- Point-Reader View -->
+    <div id="view-pr" class="card">
+      <h2>标注可视化 (Point-Reader)</h2>
+      <div class="controls">
+        <div class="form-group col-3 col-lg-4">
+          <label for="sampleInput">样例编号 / 名称</label>
+          <input id="sampleInput" type="text" placeholder="例如: 6 / sample_00006" />
+        </div>
+        <div class="form-group action-group col-3 col-lg-3">
+          <div class="button-group">
+            <button id="prevBtn" title="上一张" class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+            <button id="nextBtn" title="下一张" class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+            <button id="loadBtn" class="btn-accent" style="flex-grow: 1;">
+              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              加载
+            </button>
+          </div>
+        </div>
+        <div class="form-group col-3 col-lg-5">
+          <label for="queryInput">搜索文本</label>
+          <input id="queryInput" type="text" placeholder="输入需要匹配的字符串" />
+        </div>
+        <div class="form-group checkbox-group col-1 col-lg-2">
+          <label><input id="caseSensitive" type="checkbox" />区分大小写</label>
+        </div>
+        <div class="form-group action-group col-2 col-lg-4">
+          <div class="button-group" style="width: 100%;">
+              <button id="toggleModeBtn" class="btn-outline" title="切换绘制模式" style="flex: 1;">
+                  <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L20.49 2a9 9 0 0 1-14.85 3.36L3.51 9z"></path><path d="M20.49 15a9 9 0 0 1-14.85 3.36L3.51 22a9 9 0 0 1 14.85-3.36l2.13 1.36z"></path></svg>
+                  切换模式</button>
+              <button id="applyBtn" class="btn-accent" title="应用" style="flex: 1;">
+                  <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  应用搜索</button>
+          </div>
         </div>
       </div>
-      <div class="row col-4">
-        <label for="queryInput">搜索文本</label>
-        <input id="queryInput" type="text" placeholder="输入需要匹配的字符串 (必填)" />
+      <div class="status-bar">
+          <span id="status" class="status">就绪</span>
       </div>
-      <div class="row col-1">
-        <label for="caseSensitive">选项</label>
-        <div class="flex">
-          <label class="flex"><input id="caseSensitive" type="checkbox" /> 区分大小写</label>
-        </div>
-      </div>
-      <div class="row col-2 right">
-        <label>&nbsp;</label>
-        <div class="flex right">
-          <button id="toggleModeBtn" class="btn-outline" title="切换绘制模式">切换为绘制bbox</button>
-          <button id="applyBtn" class="btn-accent" title="应用">应用搜索</button>
-        </div>
-      </div>
-      <div class="row col-12 right">
-        <span id="status" class="status">就绪</span>
+      <div class="canvas-wrap">
+        <canvas id="canvas"></canvas>
       </div>
     </div>
-    <div class="canvas-wrap">
-      <canvas id="canvas"></canvas>
-    </div>
-  </div>
-  <div class="card" id="token-vis">
-    <h1>Token 可视化（解码 <loc_..> 到像素坐标并叠加）</h1>
-    <div class="controls">
-      <div class="row col-3">
-        <label for="t_sampleInput">样例编号 / 名称</label>
-        <input id="t_sampleInput" type="text" placeholder="例如: 6 / 00006 / sample_00006" />
-      </div>
-      <div class="row col-2">
-        <label>&nbsp;</label>
-        <div class="flex">
-          <button id="t_prevBtn" title="上一张">上一张</button>
-          <button id="t_nextBtn" title="下一张">下一张</button>
-          <button id="t_loadBtn" class="btn-accent" title="加载">加载</button>
+
+    <!-- Token Visualizer View -->
+    <div id="view-token" class="card hidden">
+      <h2>Token 可视化 (解码 &lt;loc_..&gt;)</h2>
+      <div class="controls">
+        <div class="form-group col-3 col-lg-4">
+          <label for="t_sampleInput">样例编号 / 名称</label>
+          <input id="t_sampleInput" type="text" placeholder="例如: 6 / sample_00006" />
+        </div>
+        <div class="form-group action-group col-3 col-lg-3">
+          <div class="button-group">
+            <button id="t_prevBtn" title="上一张" class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
+            <button id="t_nextBtn" title="下一张" class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+            <button id="t_loadBtn" class="btn-accent" style="flex-grow: 1;">
+              <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              加载</button>
+          </div>
+        </div>
+        <div class="form-group col-3 col-lg-5">
+          <label for="t_tokens">Token 输入 (支持 &lt;sep&gt;/&lt;spe&gt; 分段)</label>
+          <input id="t_tokens" type="text" placeholder="例如: <loc_468><loc_558>..." />
+        </div>
+        <div class="form-group col-1 col-lg-3">
+          <label for="t_mode">解析模式</label>
+          <select id="t_mode">
+            <option value="auto">自动</option>
+            <option value="points">点(每2个token)</option>
+            <option value="obb">OBB(每8个token)</option>
+          </select>
+        </div>
+        <div class="form-group checkbox-group col-2 col-lg-2">
+          <label><input id="t_showCoords" type="checkbox" /> 显示坐标</label>
+        </div>
+        <div class="form-group action-group col-12">
+          <button id="t_renderBtn" class="btn-accent" title="渲染" style="width: 100%;">
+              <svg viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
+              渲染 Token
+          </button>
         </div>
       </div>
-      <div class="row col-5">
-        <label for="t_tokens">Token 输入（支持 <sep>/<spe> 分段）</label>
-        <input id="t_tokens" type="text" placeholder="例如: <loc_468><loc_558><loc_515><loc_542>..." />
-      </div>
-      <div class="row col-1">
-        <label for="t_mode">解析模式</label>
-        <select id="t_mode">
-          <option value="auto">自动</option>
-          <option value="points">点(每2个token)</option>
-          <option value="obb">OBB(每8个token)</option>
-        </select>
-      </div>
-      <div class="row col-1">
-        <label for="t_showCoords">选项</label>
-        <div class="flex"><label class="flex"><input id="t_showCoords" type="checkbox" /> 显示坐标</label></div>
-      </div>
-      <div class="row col-12 right">
-        <label>&nbsp;</label>
-        <div class="flex right">
-          <button id="t_renderBtn" class="btn-accent" title="渲染">渲染</button>
-        </div>
-      </div>
-      <div class="row col-12 right">
+      <div class="status-bar">
         <span id="t_status" class="status">Token 可视化就绪</span>
       </div>
-    </div>
-    <div class="canvas-wrap">
-      <canvas id="t_canvas"></canvas>
+      <div class="canvas-wrap">
+        <canvas id="t_canvas"></canvas>
+      </div>
     </div>
   </div>
+
 
   <script>
     const $ = (id) => document.getElementById(id);
 
-    // 新增：防抖工具，避免每次键入都频繁重绘
+    // =====================================================================
+    // ===== VIEW NAVIGATION LOGIC =========================================
+    // =====================================================================
+    const navBtnPr = $('nav-btn-pr');
+    const navBtnToken = $('nav-btn-token');
+    const viewPr = $('view-pr');
+    const viewToken = $('view-token');
+    const mainTitle = $('main-title');
+
+    function switchView(viewName) {
+      if (viewName === 'pr') {
+        viewPr.classList.remove('hidden');
+        viewToken.classList.add('hidden');
+        navBtnPr.classList.add('active');
+        navBtnToken.classList.remove('active');
+        mainTitle.textContent = 'Point-Reader 标注可视化';
+      } else {
+        viewPr.classList.add('hidden');
+        viewToken.classList.remove('hidden');
+        navBtnPr.classList.remove('active');
+        navBtnToken.classList.add('active');
+        mainTitle.textContent = 'Token 序列可视化';
+      }
+    }
+
+    navBtnPr.addEventListener('click', () => switchView('pr'));
+    navBtnToken.addEventListener('click', () => switchView('token'));
+
+
+    // =====================================================================
+    // ===== POINT-READER VISUALIZER LOGIC =================================
+    // =====================================================================
     function debounce(fn, delay = 120) {
       let t;
       return (...args) => {
@@ -188,14 +350,11 @@
     function normalizeSample(input) {
       let s = (input || '').trim();
       if (!s) return { base: state.baseName, index: state.index };
-      // remove extension if any
       s = s.replace(/\.(json|png)$/i, '');
       if (!s.startsWith('sample_')) {
-        // if numeric -> pad
         if (/^\d+$/.test(s)) {
           s = 'sample_' + pad5(parseInt(s, 10));
         } else {
-          // assume already a name without prefix/extension
           s = 'sample_' + s;
         }
       }
@@ -221,6 +380,15 @@
         $('sampleInput').value = baseName;
         draw();
         $('status').innerHTML = `已加载 <span class="pill">${baseName}</span>，图像尺寸 ${img.naturalWidth}×${img.naturalHeight}，共有子串 ${meta.substrings?.length ?? 0} 个`;
+        
+        // Also sync to the token visualizer
+        tState.image = img;
+        tState.baseName = baseName;
+        tState.index = state.index;
+        $('t_sampleInput').value = baseName;
+        tDraw(); // Redraw token canvas with new image but old tokens
+        $('t_status').innerHTML = `已从另一视图同步 <span class="pill">${baseName}</span>`;
+
       } catch (err) {
         console.error(err);
         $('status').textContent = err.message || String(err);
@@ -232,7 +400,7 @@
         const img = new Image();
         img.onload = () => resolve(img);
         img.onerror = () => reject(new Error(`无法加载图片: ${src}`));
-        img.src = src + `?t=${Date.now()}`; // cache busting
+        img.src = src + `?t=${Date.now()}`;
       });
     }
 
@@ -240,13 +408,11 @@
       const canvas = $('canvas');
       const ctx = canvas.getContext('2d');
       if (!state.image) { ctx.clearRect(0,0,canvas.width,canvas.height); return; }
-      // resize canvas to image
       canvas.width = state.image.naturalWidth;
       canvas.height = state.image.naturalHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(state.image, 0, 0);
 
-      // draw matches if query present
       const query = $('queryInput').value.trim();
       if (!query || !state.json) return;
       const caseSensitive = $('caseSensitive').checked;
@@ -301,28 +467,11 @@
        }
       ctx.restore();
 
-      $('status').innerHTML = state.drawMode === 'center'
-        ? `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个，字符点 ${totalCharPts} 个`
-        : `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个`;
-    }
-
-    function drawCross(ctx, x, y, size = 6, color = '#22c55e') {
-      ctx.save();
-      ctx.setLineDash([]);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(x - size, y);
-      ctx.lineTo(x + size, y);
-      ctx.moveTo(x, y - size);
-      ctx.lineTo(x, y + size);
-      ctx.lineTo(x, y + size);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.restore();
+      if (query) {
+        $('status').innerHTML = state.drawMode === 'center'
+          ? `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个，字符点 ${totalCharPts} 个`
+          : `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个`;
+      }
     }
 
     function drawTag(ctx, text, x, y, color = '#22c55e', centered = false) {
@@ -335,13 +484,11 @@
       const h = 16 + padY * 2;
       let tx = x, ty = y;
       if (centered) { tx = x - w/2; ty = y - h/2; }
-      // background
       ctx.fillStyle = 'rgba(2,6,23,0.7)';
       ctx.strokeStyle = 'rgba(148,163,184,0.35)';
       roundRect(ctx, tx, ty - h, w, h, 6);
       ctx.fill();
       ctx.stroke();
-      // text
       ctx.fillStyle = color;
       ctx.fillText(text, tx + padX, ty - h + padY + 12);
       ctx.restore();
@@ -358,7 +505,6 @@
       ctx.closePath();
     }
 
-    // 新增：绘制倾斜最小矩形（四点多边形）
     function drawPolygon(ctx, points, color = '#22c55e') {
       ctx.save();
       ctx.setLineDash([6,4]);
@@ -374,7 +520,6 @@
       ctx.restore();
     }
 
-    // 新增：计算多边形重心（用于放置标签）
     function computeCentroid(points) {
       let sx = 0, sy = 0;
       for (const [x,y] of points) { sx += x; sy += y; }
@@ -385,7 +530,8 @@
 
     function toggleMode() {
       state.drawMode = state.drawMode === 'center' ? 'bbox' : 'center';
-      $('toggleModeBtn').textContent = state.drawMode === 'center' ? '切换为绘制bbox' : '切换为绘制字符中心';
+      const btn = $('toggleModeBtn');
+      btn.childNodes[1].nodeValue = state.drawMode === 'center' ? ' 切换为BBox' : ' 切换为中心点';
       draw();
     }
 
@@ -406,34 +552,22 @@
       loadSample(base);
     }
 
-    // 新增：创建防抖后的绘制函数
     const debouncedDraw = debounce(draw, 120);
 
-    // Events
     $('loadBtn').addEventListener('click', onLoadClick);
     $('applyBtn').addEventListener('click', applySearch);
     $('toggleModeBtn').addEventListener('click', toggleMode);
     $('prevBtn').addEventListener('click', prevSample);
     $('nextBtn').addEventListener('click', nextSample);
-    // 改为实时搜索：输入即触发重绘
     $('queryInput').addEventListener('input', debouncedDraw);
-    // 仍然保留回车作为备用
     $('queryInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') applySearch(); });
-    // 大小写选项变化时立即重绘
     $('caseSensitive').addEventListener('change', draw);
     $('sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') onLoadClick(); });
 
-    // Init: try load 00000
-    (function init() {
-      const { base, index } = normalizeSample('00000');
-      state.index = index; state.baseName = base;
-      $('sampleInput').value = base;
-      loadSample(base).catch(() => {
-        $('status').textContent = '请在上方输入样例编号或名称后点击加载';
-      });
-    })();
-
-    // ===================== Token 可视化（loc->pixel） =====================
+    
+    // =====================================================================
+    // ===== TOKEN VISUALIZER LOGIC ========================================
+    // =====================================================================
     const LOC_RE = /<loc_(\d+)>/g;
     const BINS_W = 1000, BINS_H = 1000;
 
@@ -480,7 +614,7 @@
     function tDraw() {
       const canvas = $('t_canvas');
       const ctx = canvas.getContext('2d');
-      if (!tState.image) { ctx.clearRect(0, 0, canvas.width, canvas.height); $('t_status').textContent = '请先加载图片'; return; }
+      if (!tState.image) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
       canvas.width = tState.image.naturalWidth;
       canvas.height = tState.image.naturalHeight;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -488,6 +622,8 @@
 
       const raw = $('t_tokens').value || '';
       const segs = tSplitSegments(raw);
+      if (segs.length === 0) return;
+
       const mode = $('t_mode').value;
       const showCoords = $('t_showCoords').checked;
       const colors = ['#22c55e', '#60a5fa', '#f97316', '#e879f9', '#f43f5e', '#14b8a6', '#a3e635', '#f59e0b'];
@@ -524,10 +660,11 @@
       $('t_status').textContent = `已渲染 ${segs.length} 段；Token 数 ${tokenCount}；点数 ${ptsCount}`;
     }
 
-    function tLoadSample(baseName) {
+    async function tLoadSample(baseName) {
       const imgPath = `output/images/${baseName}.png`;
       $('t_status').textContent = `加载中: ${baseName} ...`;
-      loadImage(imgPath).then(img => {
+      try {
+        const img = await loadImage(imgPath);
         tState.image = img;
         tState.baseName = baseName;
         const m = baseName.match(/sample_(\d{1,})$/);
@@ -535,10 +672,26 @@
         $('t_sampleInput').value = baseName;
         tDraw();
         $('t_status').innerHTML = `已加载 <span class="pill">${baseName}</span>，图像尺寸 ${img.naturalWidth}×${img.naturalHeight}`;
-      }).catch(err => {
+
+        // Also sync to the point-reader visualizer
+        state.image = img;
+        state.baseName = baseName;
+        state.index = tState.index;
+        $('sampleInput').value = baseName;
+        const jsonPath = `output/annotations/${baseName}.json`;
+        try {
+            const meta = await fetch(jsonPath).then(r => r.ok ? r.json() : null);
+            state.json = meta;
+        } catch(e) { state.json = null; }
+        draw(); // Redraw point-reader canvas
+        if (state.json) {
+            $('status').innerHTML = `已从另一视图同步 <span class="pill">${baseName}</span>`;
+        }
+        
+      } catch (err) {
         console.error(err);
         $('t_status').textContent = err.message || String(err);
-      });
+      }
     }
 
     function tPrev() {
@@ -558,28 +711,38 @@
       tLoadSample(base);
     }
 
+
+
     const tDebouncedDraw = debounce(tDraw, 150);
 
-    // 事件绑定（若元素存在）
-    if ($('t_loadBtn')) $('t_loadBtn').addEventListener('click', tOnLoadClick);
-    if ($('t_renderBtn')) $('t_renderBtn').addEventListener('click', tDraw);
-    if ($('t_prevBtn')) $('t_prevBtn').addEventListener('click', tPrev);
-    if ($('t_nextBtn')) $('t_nextBtn').addEventListener('click', tNext);
-    if ($('t_tokens')) $('t_tokens').addEventListener('input', tDebouncedDraw);
-    if ($('t_mode')) $('t_mode').addEventListener('change', tDraw);
-    if ($('t_showCoords')) $('t_showCoords').addEventListener('change', tDraw);
-    if ($('t_sampleInput')) $('t_sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tOnLoadClick(); });
+    $('t_loadBtn').addEventListener('click', tOnLoadClick);
+    $('t_renderBtn').addEventListener('click', tDraw);
+    $('t_prevBtn').addEventListener('click', tPrev);
+    $('t_nextBtn').addEventListener('click', tNext);
+    $('t_tokens').addEventListener('input', tDebouncedDraw);
+    $('t_mode').addEventListener('change', tDraw);
+    $('t_showCoords').addEventListener('change', tDraw);
+    $('t_sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tOnLoadClick(); });
+    
 
-    // 初始化：尝试沿用上方样例编号
-    (function tInit() {
-      const base = $('sampleInput')?.value || 'sample_00000';
-      const { base: normBase, index } = normalizeSample(base);
-      tState.index = index; tState.baseName = normBase;
-      $('t_sampleInput').value = normBase;
-      tLoadSample(normBase);
+    // =====================================================================
+    // ===== INITIALIZATION ================================================
+    // =====================================================================
+    (function init() {
+      // Init Point-Reader
+      const { base, index } = normalizeSample('00000');
+      state.index = index; state.baseName = base;
+      $('sampleInput').value = base;
+      loadSample(base).catch(() => {
+        $('status').textContent = '请在上方输入样例编号或名称后点击加载';
+      });
+      const btn = $('toggleModeBtn');
+      btn.childNodes[1].nodeValue = state.drawMode === 'center' ? ' 切换为BBox' : ' 切换为中心点';
+      
+      // Init Token Vis (it will be synced by loadSample)
+      $('t_sampleInput').value = base;
     })();
 
-    // ===================== /Token 可视化 =====================
   </script>
 </body>
 </html>

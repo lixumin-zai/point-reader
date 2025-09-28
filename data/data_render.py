@@ -7,6 +7,7 @@ import math
 
 from PIL import Image, ImageDraw, ImageFont
 import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # 允许的字符集：1-9, a-z, A-Z（不包含0）
 ALPHABET = "123456789" + string.ascii_letters
@@ -349,6 +350,58 @@ def render_image(
     return canvas, annotations, sub_annotations
 
 
+def _generate_one_image_task(
+    i: int,
+    width: int,
+    height: int,
+    min_items: int,
+    max_items: int,
+    min_len: int,
+    max_len: int,
+    min_font: int,
+    max_font: int,
+    fonts: List[str],
+    img_dir: str,
+    ann_dir: str,
+    seed_base: Optional[int],
+    bg_color: Tuple[int, int, int] = (255, 255, 255),
+    min_angle: int = -25,
+    max_angle: int = 25,
+) -> bool:
+    """子进程任务：生成并保存第 i 个样本。"""
+    try:
+        # 确保可复现：不同样本使用不同 seed
+        if seed_base is not None:
+            random.seed(seed_base + i)
+        # 随机 items 数量
+        n_items = random.randint(min_items, max_items)
+        img, anns, sub_anns = render_image(
+            width,
+            height,
+            n_items,
+            min_len,
+            max_len,
+            min_font,
+            max_font,
+            fonts,
+            bg_color=bg_color,
+            min_angle=min_angle,
+            max_angle=max_angle,
+        )
+        img_path = os.path.join(img_dir, f"sample_{i:05d}.png")
+        ann_path = os.path.join(ann_dir, f"sample_{i:05d}.json")
+        img.save(img_path)
+        with open(ann_path, "w", encoding="utf-8") as f:
+            json.dump({
+                "image": os.path.basename(img_path),
+                "items": anns,
+                "substrings": sub_anns,
+            }, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 class DatasetRenderer:
     """使用类来控制数据集生成参数，不依赖 argparse。"""
     def __init__(
@@ -366,6 +419,7 @@ class DatasetRenderer:
         seed: Optional[int] = None,
         fonts_dir: Optional[str] = None,
         prefer_families: Optional[List[str]] = None,
+        num_workers: Optional[int] = None,
     ):
         self.out_dir = out_dir
         self.n_images = n_images
@@ -380,6 +434,7 @@ class DatasetRenderer:
         self.seed = seed
         self.fonts_dir = fonts_dir
         self.prefer_families = prefer_families
+        self.num_workers = num_workers
 
     def run(self):
         if self.seed is not None:
@@ -404,27 +459,61 @@ class DatasetRenderer:
         # 使用类的 prefer_families 进行过滤；若未提供则使用默认 COMMON_FAMILIES
         fonts = prefer_common_fonts(fonts, families=self.prefer_families)
 
-        for i in tqdm.tqdm(range(self.n_images)):
-            n_items = random.randint(self.min_items, self.max_items)
-            img, anns, sub_anns = render_image(
-                self.width,
-                self.height,
-                n_items,
-                self.min_len,
-                self.max_len,
-                self.min_font,
-                self.max_font,
-                fonts,
-            )
-            img_path = os.path.join(img_dir, f"sample_{i:05d}.png")
-            ann_path = os.path.join(ann_dir, f"sample_{i:05d}.json")
-            img.save(img_path)
-            with open(ann_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "image": os.path.basename(img_path),
-                    "items": anns,
-                    "substrings": sub_anns,
-                }, f, ensure_ascii=False, indent=2)
+        workers = self.num_workers if (self.num_workers and self.num_workers > 1) else None
+        if workers is None:
+            # 默认使用所有可用核心并行，至少为 1
+            workers = max(1, (os.cpu_count() or 1))
+
+        if workers <= 1:
+            for i in tqdm.tqdm(range(self.n_images)):
+                n_items = random.randint(self.min_items, self.max_items)
+                img, anns, sub_anns = render_image(
+                    self.width,
+                    self.height,
+                    n_items,
+                    self.min_len,
+                    self.max_len,
+                    self.min_font,
+                    self.max_font,
+                    fonts,
+                )
+                img_path = os.path.join(img_dir, f"sample_{i:05d}.png")
+                ann_path = os.path.join(ann_dir, f"sample_{i:05d}.json")
+                img.save(img_path)
+                with open(ann_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "image": os.path.basename(img_path),
+                        "items": anns,
+                        "substrings": sub_anns,
+                    }, f, ensure_ascii=False, indent=2)
+        else:
+            # 多进程并行生成
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                futures = []
+                for i in range(self.n_images):
+                    futures.append(
+                        ex.submit(
+                            _generate_one_image_task,
+                            i,
+                            self.width,
+                            self.height,
+                            self.min_items,
+                            self.max_items,
+                            self.min_len,
+                            self.max_len,
+                            self.min_font,
+                            self.max_font,
+                            fonts,
+                            img_dir,
+                            ann_dir,
+                            self.seed,
+                        )
+                    )
+                ok = 0
+                for _ in tqdm.tqdm(as_completed(futures), total=len(futures)):
+                    ok += 1
+            # 可选：结束后打印一次汇总
+            # print(f"并行生成完成：{ok}/{self.n_images}")
 
 
 def main():
@@ -445,6 +534,8 @@ def main():
         # 你可以传入自己偏好的家族列表，例如：
         # prefer_families=["Arial", "Helvetica", "Menlo"]
         prefer_families=None,
+        # 默认为 CPU 核心数，设为 1 则顺序生成
+        num_workers=None,
     )
     renderer.run()
     print(f"数据已生成到: {os.path.abspath(renderer.out_dir)}")

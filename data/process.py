@@ -4,6 +4,7 @@ import json
 from typing import List, Dict, Tuple, Optional
 from PIL import Image
 import random
+import string
 
 BINS_W = 1000
 BINS_H = 1000
@@ -182,6 +183,58 @@ def process_annotation(path: str,
             "image": image_name,
             "question": f"points out {display_text}",
             "answer": points_answer,
+        })
+
+    # ---------- 负样本：为 detect/points out 构造当前图片不存在的字符/字符串，答案为 None ----------
+    present_keys = set(grouped.keys())
+    # 与合成数据生成一致：不含 '0'
+    if case_sensitive:
+        alpha_chars: List[str] = list("123456789" + string.ascii_letters)
+    else:
+        alpha_chars = list("123456789" + string.ascii_lowercase)
+
+    # 单字符负样本
+    cand_chars = [c for c in alpha_chars if norm_text(c) not in present_keys]
+    random.shuffle(cand_chars)
+    max_neg_chars = 15
+    for c in cand_chars[:max_neg_chars]:
+        samples.append({
+            "image": image_name,
+            "question": f"detect {c}",
+            "answer": "None",
+        })
+        samples.append({
+            "image": image_name,
+            "question": f"points out {c}",
+            "answer": "None",
+        })
+
+    # 多字符负样本（长度 2-3）
+    def _sample_neg_string(existing: set, tries: int = 200) -> Optional[str]:
+        for _ in range(tries):
+            L = random.randint(2, 10)
+            s = "".join(random.choice(alpha_chars) for _ in range(L))
+            if norm_text(s) not in existing:
+                return s
+        return None
+
+    max_neg_str = 15
+    neg_set: set = set()
+    while len(neg_set) < max_neg_str:
+        s = _sample_neg_string(present_keys)
+        if not s:
+            break
+        neg_set.add(s)
+    for s in neg_set:
+        samples.append({
+            "image": image_name,
+            "question": f"detect {s}",
+            "answer": "None",
+        })
+        samples.append({
+            "image": image_name,
+            "question": f"points out {s}",
+            "answer": "None",
         })
 
     # 预先收集所有字符（包含多字符）的 OBB，用于负样本点外采样

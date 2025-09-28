@@ -12,9 +12,9 @@ class PointReaderData(Dataset):
     返回字典包含 image_path, question, answer。
     """
 
-    def __init__(self,
+    def __init__(self,images_dir="./output/images",
                  precomputed_path: str = "./output/qa_samples.jsonl"):
-
+        self.images_dir = images_dir
         self.precomputed_path = precomputed_path
 
         # 直接读取预计算的 JSONL
