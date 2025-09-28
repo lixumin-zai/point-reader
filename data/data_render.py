@@ -213,14 +213,35 @@ def compute_substring_annotations(item: Dict) -> List[Dict]:
             xs = [p[0] for p in obb]
             ys = [p[1] for p in obb]
             bx1, by1, bx2, by2 = min(xs), min(ys), max(xs), max(ys)
-            # 中心点：四点平均
+            # 中心点：四点平均（整体子串中心）
             cx = sum(xs) / 4.0
             cy = sum(ys) / 4.0
+
+            # 新增：逐字符中心点（当子串包含多个字符时，计算每个字符的中心）
+            char_centers: List[List[float]] = []
+            if len(s) >= 1:
+                for p in range(len(s)):
+                    # 该字符相对当前子串起点的进位宽度
+                    char_adv = dtmp.textlength(s[:p], font=font)
+                    char_overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                    cod = ImageDraw.Draw(char_overlay)
+                    cod.text((origin_x + prefix_adv + char_adv, origin_y), s[p], font=font, fill=(255, 255, 255, 255))
+                    cabox = char_overlay.split()[3].getbbox()
+                    if not cabox:
+                        continue
+                    cobb = obb_from_abox(cabox, W, H, angle, x_on_canvas=x0, y_on_canvas=y0)
+                    cxs = [pp[0] for pp in cobb]
+                    cys = [pp[1] for pp in cobb]
+                    ccx = sum(cxs) / 4.0
+                    ccy = sum(cys) / 4.0
+                    char_centers.append([float(f"{ccx:.2f}"), float(f"{ccy:.2f}")])
+
             subs.append({
                 "text": s,
                 "center": [float(f"{cx:.2f}"), float(f"{cy:.2f}")],
                 "bbox": [int(bx1), int(by1), int(bx2), int(by2)],
                 "obb": obb,
+                "char_centers": char_centers,
             })
     return subs
 
@@ -283,14 +304,41 @@ def render_image(
         xs = [p[0] for p in obb]
         ys = [p[1] for p in obb]
         bx1, by1, bx2, by2 = min(xs), min(ys), max(xs), max(ys)
-        # 中心点：四点平均
+        # 中心点：四点平均（整体条目中心）
         cx = sum(xs) / 4.0
         cy = sum(ys) / 4.0
+
+        # 新增：逐字符中心点（针对整条目 text 的每个字符）
+        char_centers_item: List[List[float]] = []
+        try:
+            full_tmp = Image.new("L", (1, 1), 0)
+            dfull = ImageDraw.Draw(full_tmp)
+            full_bbox = dfull.textbbox((0, 0), it["text"], font=it["font"])  # type: ignore
+            origin_x = it["pad"] - full_bbox[0]
+            origin_y = it["pad"] - full_bbox[1]
+            for pidx in range(len(it["text"])):
+                adv = dfull.textlength(it["text"][:pidx], font=it["font"])  # type: ignore
+                char_overlay = Image.new("RGBA", it["img"].size, (0, 0, 0, 0))
+                cod = ImageDraw.Draw(char_overlay)
+                cod.text((origin_x + adv, origin_y), it["text"][pidx], font=it["font"], fill=(255, 255, 255, 255))
+                cabox = char_overlay.split()[3].getbbox()
+                if not cabox:
+                    continue
+                cobb = obb_from_abox(cabox, it["orig_size"][0], it["orig_size"][1], it.get("angle", 0.0), it["x"], it["y"])  # type: ignore
+                cxs = [pp[0] for pp in cobb]
+                cys = [pp[1] for pp in cobb]
+                ccx = sum(cxs) / 4.0
+                ccy = sum(cys) / 4.0
+                char_centers_item.append([float(f"{ccx:.2f}"), float(f"{ccy:.2f}")])
+        except Exception:
+            pass
+
         annotations.append({
             "text": it["text"],
             "center": [float(f"{cx:.2f}"), float(f"{cy:.2f}")],
             "bbox": [int(bx1), int(by1), int(bx2), int(by2)],
             "obb": obb,
+            "char_centers": char_centers_item,
         })
 
     # 输出：所有连续子字符串的中心点与bbox/obb

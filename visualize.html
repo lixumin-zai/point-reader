@@ -117,6 +117,51 @@
       <canvas id="canvas"></canvas>
     </div>
   </div>
+  <div class="card" id="token-vis">
+    <h1>Token 可视化（解码 <loc_..> 到像素坐标并叠加）</h1>
+    <div class="controls">
+      <div class="row col-3">
+        <label for="t_sampleInput">样例编号 / 名称</label>
+        <input id="t_sampleInput" type="text" placeholder="例如: 6 / 00006 / sample_00006" />
+      </div>
+      <div class="row col-2">
+        <label>&nbsp;</label>
+        <div class="flex">
+          <button id="t_prevBtn" title="上一张">上一张</button>
+          <button id="t_nextBtn" title="下一张">下一张</button>
+          <button id="t_loadBtn" class="btn-accent" title="加载">加载</button>
+        </div>
+      </div>
+      <div class="row col-5">
+        <label for="t_tokens">Token 输入（支持 <sep>/<spe> 分段）</label>
+        <input id="t_tokens" type="text" placeholder="例如: <loc_468><loc_558><loc_515><loc_542>..." />
+      </div>
+      <div class="row col-1">
+        <label for="t_mode">解析模式</label>
+        <select id="t_mode">
+          <option value="auto">自动</option>
+          <option value="points">点(每2个token)</option>
+          <option value="obb">OBB(每8个token)</option>
+        </select>
+      </div>
+      <div class="row col-1">
+        <label for="t_showCoords">选项</label>
+        <div class="flex"><label class="flex"><input id="t_showCoords" type="checkbox" /> 显示坐标</label></div>
+      </div>
+      <div class="row col-12 right">
+        <label>&nbsp;</label>
+        <div class="flex right">
+          <button id="t_renderBtn" class="btn-accent" title="渲染">渲染</button>
+        </div>
+      </div>
+      <div class="row col-12 right">
+        <span id="t_status" class="status">Token 可视化就绪</span>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="t_canvas"></canvas>
+    </div>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -217,31 +262,48 @@
       ctx.fillStyle = color;
       ctx.setLineDash(dash);
 
+      let totalCharPts = 0;
+
       for (const m of matches) {
-        if (state.drawMode === 'bbox') {
-          const obb = m.obb;
-          if (Array.isArray(obb) && obb.length === 4 && obb.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(Number.isFinite))) {
-            drawPolygon(ctx, obb, color);
-            const [cx, cy] = computeCentroid(obb);
-            drawTag(ctx, m.text, cx, cy, color, true);
-          } else {
-            const [x1, y1, x2, y2] = m.bbox || [];
-            if ([x1,y1,x2,y2].every(Number.isFinite)) {
-              ctx.strokeRect(x1 + 0.5, y1 + 0.5, (x2 - x1), (y2 - y1));
-              drawTag(ctx, m.text, x1, y1, color);
-            }
-          }
-        } else {
-          const [cx, cy] = m.center || [];
-          if ([cx, cy].every(Number.isFinite)) {
-            drawCross(ctx, cx, cy, 6, color);
-            drawTag(ctx, m.text, cx + 8, cy - 8, color, true);
-          }
-        }
-      }
+         if (state.drawMode === 'bbox') {
+           const obb = m.obb;
+           if (Array.isArray(obb) && obb.length === 4 && obb.every(pt => Array.isArray(pt) && pt.length === 2 && pt.every(Number.isFinite))) {
+             drawPolygon(ctx, obb, color);
+             const [cx, cy] = computeCentroid(obb);
+             drawTag(ctx, m.text, cx, cy, color, true);
+           } else {
+             const [x1, y1, x2, y2] = m.bbox || [];
+             if ([x1,y1,x2,y2].every(Number.isFinite)) {
+               ctx.strokeRect(x1 + 0.5, y1 + 0.5, (x2 - x1), (y2 - y1));
+               drawTag(ctx, m.text, x1, y1, color);
+             }
+           }
+         } else {
+           const ccs = Array.isArray(m.char_centers) ? m.char_centers : [];
+           if (ccs.length > 0) {
+             ccs.forEach(pt => {
+               const [x, y] = pt;
+               if ([x, y].every(Number.isFinite)) drawDot(ctx, x, y, color);
+             });
+             const sum = ccs.reduce((acc, pt) => [acc[0] + pt[0], acc[1] + pt[1]], [0, 0]);
+             const cx = sum[0] / ccs.length, cy = sum[1] / ccs.length;
+             drawTag(ctx, m.text, cx, cy, color, true);
+             totalCharPts += ccs.length;
+           } else {
+             const [cx, cy] = m.center || [];
+             if ([cx, cy].every(Number.isFinite)) {
+               drawDot(ctx, cx, cy, color);
+               drawTag(ctx, m.text, cx + 8, cy - 8, color, true);
+               totalCharPts += 1;
+             }
+           }
+         }
+       }
       ctx.restore();
 
-      $('status').innerHTML = `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个`;
+      $('status').innerHTML = state.drawMode === 'center'
+        ? `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个，字符点 ${totalCharPts} 个`
+        : `已加载 <span class="pill">${state.baseName}</span>，匹配到 ${matches.length} 个`;
     }
 
     function drawCross(ctx, x, y, size = 6, color = '#22c55e') {
@@ -323,7 +385,7 @@
 
     function toggleMode() {
       state.drawMode = state.drawMode === 'center' ? 'bbox' : 'center';
-      $('toggleModeBtn').textContent = state.drawMode === 'center' ? '切换为绘制bbox' : '切换为绘制中点';
+      $('toggleModeBtn').textContent = state.drawMode === 'center' ? '切换为绘制bbox' : '切换为绘制字符中心';
       draw();
     }
 
@@ -370,6 +432,154 @@
         $('status').textContent = '请在上方输入样例编号或名称后点击加载';
       });
     })();
+
+    // ===================== Token 可视化（loc->pixel） =====================
+    const LOC_RE = /<loc_(\d+)>/g;
+    const BINS_W = 1000, BINS_H = 1000;
+
+    const tState = {
+      baseName: 'sample_00000',
+      index: 0,
+      image: null,
+    };
+
+    function tSplitSegments(str) {
+      if (!str) return [];
+      return str.split(/(?:<sep>|<spe>)/).map(s => s.trim()).filter(Boolean);
+    }
+
+    function tDecodePointsFromTokens(segmentStr, width, height) {
+      const ids = [];
+      const matches = segmentStr.matchAll(LOC_RE);
+      for (const m of matches) ids.push(parseInt(m[1], 10));
+      const pts = [];
+      for (let i = 0; i + 1 < ids.length; i += 2) {
+        const qx = ids[i], qy = ids[i + 1];
+        const x = (qx + 0.5) / BINS_W * width;
+        const y = (qy + 0.5) / BINS_H * height;
+        pts.push([x, y]);
+      }
+      return { ids, pts };
+    }
+
+    function drawDot(ctx, x, y, color = '#22c55e') {
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function tDraw() {
+      const canvas = $('t_canvas');
+      const ctx = canvas.getContext('2d');
+      if (!tState.image) { ctx.clearRect(0, 0, canvas.width, canvas.height); $('t_status').textContent = '请先加载图片'; return; }
+      canvas.width = tState.image.naturalWidth;
+      canvas.height = tState.image.naturalHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(tState.image, 0, 0);
+
+      const raw = $('t_tokens').value || '';
+      const segs = tSplitSegments(raw);
+      const mode = $('t_mode').value;
+      const showCoords = $('t_showCoords').checked;
+      const colors = ['#22c55e', '#60a5fa', '#f97316', '#e879f9', '#f43f5e', '#14b8a6', '#a3e635', '#f59e0b'];
+
+      ctx.save();
+      const segPointCounts = [];
+      segs.forEach((seg, si) => {
+        const { ids, pts } = tDecodePointsFromTokens(seg, canvas.width, canvas.height);
+        const color = colors[si % colors.length];
+        const isObb = (mode === 'obb') || (mode === 'auto' && ids.length >= 8 && ids.length % 8 === 0);
+        if (isObb) {
+          for (let k = 0; k + 7 < ids.length; k += 8) {
+            const subPts = pts.slice(k / 2, k / 2 + 4);
+            drawPolygon(ctx, subPts.map(p => [p[0], p[1]]), color);
+            const [cx, cy] = computeCentroid(subPts);
+            drawTag(ctx, `seg${si + 1}`, cx, cy, color, true);
+            if (showCoords) {
+              subPts.forEach(([x, y], idx) => drawTag(ctx, `${idx + 1}: ${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color));
+            }
+          }
+          segPointCounts.push(Math.floor(ids.length / 2));
+        } else {
+          pts.forEach(([x, y]) => {
+            drawDot(ctx, x, y, color);
+            if (showCoords) drawTag(ctx, `${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color);
+          });
+          segPointCounts.push(pts.length);
+        }
+      });
+      ctx.restore();
+
+      const tokenCount = segs.reduce((s, seg) => s + ((seg.match(LOC_RE) || []).length), 0);
+      const ptsCount = segPointCounts.reduce((a,b)=>a+b,0);
+      $('t_status').textContent = `已渲染 ${segs.length} 段；Token 数 ${tokenCount}；点数 ${ptsCount}`;
+    }
+
+    function tLoadSample(baseName) {
+      const imgPath = `output/images/${baseName}.png`;
+      $('t_status').textContent = `加载中: ${baseName} ...`;
+      loadImage(imgPath).then(img => {
+        tState.image = img;
+        tState.baseName = baseName;
+        const m = baseName.match(/sample_(\d{1,})$/);
+        tState.index = m ? parseInt(m[1], 10) : tState.index;
+        $('t_sampleInput').value = baseName;
+        tDraw();
+        $('t_status').innerHTML = `已加载 <span class="pill">${baseName}</span>，图像尺寸 ${img.naturalWidth}×${img.naturalHeight}`;
+      }).catch(err => {
+        console.error(err);
+        $('t_status').textContent = err.message || String(err);
+      });
+    }
+
+    function tPrev() {
+      const idx = Math.max(0, tState.index - 1);
+      const base = 'sample_' + pad5(idx);
+      tLoadSample(base);
+    }
+
+    function tNext() {
+      const idx = tState.index + 1;
+      const base = 'sample_' + pad5(idx);
+      tLoadSample(base);
+    }
+
+    function tOnLoadClick() {
+      const { base } = normalizeSample($('t_sampleInput').value);
+      tLoadSample(base);
+    }
+
+    const tDebouncedDraw = debounce(tDraw, 150);
+
+    // 事件绑定（若元素存在）
+    if ($('t_loadBtn')) $('t_loadBtn').addEventListener('click', tOnLoadClick);
+    if ($('t_renderBtn')) $('t_renderBtn').addEventListener('click', tDraw);
+    if ($('t_prevBtn')) $('t_prevBtn').addEventListener('click', tPrev);
+    if ($('t_nextBtn')) $('t_nextBtn').addEventListener('click', tNext);
+    if ($('t_tokens')) $('t_tokens').addEventListener('input', tDebouncedDraw);
+    if ($('t_mode')) $('t_mode').addEventListener('change', tDraw);
+    if ($('t_showCoords')) $('t_showCoords').addEventListener('change', tDraw);
+    if ($('t_sampleInput')) $('t_sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tOnLoadClick(); });
+
+    // 初始化：尝试沿用上方样例编号
+    (function tInit() {
+      const base = $('sampleInput')?.value || 'sample_00000';
+      const { base: normBase, index } = normalizeSample(base);
+      tState.index = index; tState.baseName = normBase;
+      $('t_sampleInput').value = normBase;
+      tLoadSample(normBase);
+    })();
+
+    // ===================== /Token 可视化 =====================
   </script>
 </body>
 </html>

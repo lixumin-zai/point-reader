@@ -148,7 +148,7 @@ def process_annotation(path: str,
                 # 回退到 bbox 的四角
                 x1, y1, x2, y2 = s.get("bbox", [0, 0, 0, 0])
                 obb = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-                obb_segments.append(obb)
+            obb_segments.append(obb)
         obb_segments = sorted(obb_segments, key=lambda x:x[0][0]) 
         obb_segments = [_format_obb_tokens(obb, width, height) for obb in obb_segments]
         detect_answer = "<sep>".join(obb_segments) if obb_segments else "None"
@@ -158,21 +158,26 @@ def process_annotation(path: str,
             "answer": detect_answer,
         })
 
-        # points 问题：输出多个中心点
-        point_segments: List[str] = []
+        # points 问题：输出多个中心点（改为使用每个字符的中心点 char_centers）
+        char_points: List[Tuple[float, float]] = []
         for s in entries:
-            cx, cy = s.get("center", [None, None])
-            if cx is None or cy is None:
-                # 回退到 bbox 中心
-                x1, y1, x2, y2 = s.get("bbox", [0, 0, 0, 0])
-                cx = (x1 + x2) / 2.0
-                cy = (y1 + y2) / 2.0
-            point_segments.append((cx, cy))
+            ccs = s.get("char_centers", [])
+            if not ccs:
+                # 回退：若没有逐字符中心，则退回单个中心或 bbox 中心
+                cx, cy = s.get("center", [None, None])
+                if cx is None or cy is None:
+                    x1, y1, x2, y2 = s.get("bbox", [0, 0, 0, 0])
+                    cx = (x1 + x2) / 2.0
+                    cy = (y1 + y2) / 2.0
+                ccs = [[cx, cy]]
+            for pt in ccs:
+                if isinstance(pt, (list, tuple)) and len(pt) == 2:
+                    char_points.append((float(pt[0]), float(pt[1])))
 
-        point_segments = sorted(point_segments, key=lambda x:x[0]) 
-        point_segments = [_format_point_token(cx, cy, width, height) for cx, cy in point_segments]
-
-        points_answer = "<sep>".join(point_segments) if point_segments else "None"
+        # 按 x 坐标排序，编码为 <loc_..> token，并以 <sep> 连接
+        char_points = sorted(char_points, key=lambda x: x[0])
+        point_tokens = [_format_point_token(cx, cy, width, height) for cx, cy in char_points]
+        points_answer = "<sep>".join(point_tokens) if point_tokens else "None"
         samples.append({
             "image": image_name,
             "question": f"points out {display_text}",
@@ -266,5 +271,5 @@ def build_precomputed_dataset(
 if __name__ == "__main__":
     # 预计算并写入 JSONL，供 Dataset 直接读取
     out_jsonl = "../output/qa_samples.jsonl"
-    n = build_precomputed_dataset(out_path=out_jsonl, max_questions_per_image=20)
+    n = build_precomputed_dataset(out_path=out_jsonl, max_questions_per_image=100)
     print(f"Precomputed samples: {n}, saved to: {os.path.abspath(out_jsonl)}")
