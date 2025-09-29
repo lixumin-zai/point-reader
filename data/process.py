@@ -196,7 +196,7 @@ def process_annotation(path: str,
     # 单字符负样本
     cand_chars = [c for c in alpha_chars if norm_text(c) not in present_keys]
     random.shuffle(cand_chars)
-    max_neg_chars = 15
+    max_neg_chars = 3
     for c in cand_chars[:max_neg_chars]:
         samples.append({
             "image": image_name,
@@ -210,7 +210,7 @@ def process_annotation(path: str,
         })
 
     # 多字符负样本（长度 2-3）
-    def _sample_neg_string(existing: set, tries: int = 200) -> Optional[str]:
+    def _sample_neg_string(existing: set, tries: int = 5) -> Optional[str]:
         for _ in range(tries):
             L = random.randint(2, 10)
             s = "".join(random.choice(alpha_chars) for _ in range(L))
@@ -218,7 +218,7 @@ def process_annotation(path: str,
                 return s
         return None
 
-    max_neg_str = 15
+    max_neg_str = 5
     neg_set: set = set()
     while len(neg_set) < max_neg_str:
         s = _sample_neg_string(present_keys)
@@ -226,6 +226,79 @@ def process_annotation(path: str,
             break
         neg_set.add(s)
     for s in neg_set:
+        samples.append({
+            "image": image_name,
+            "question": f"detect {s}",
+            "answer": "None",
+        })
+        samples.append({
+            "image": image_name,
+            "question": f"points out {s}",
+            "answer": "None",
+        })
+
+    # 相近负样本：对当前图片存在的子字符串，构造若干近似字符串（编辑距离1）
+    used_neg_keys = set(norm_text(x) for x in neg_set) | present_keys
+
+    def _near_variants(t: str, max_variants: int = 5) -> List[str]:
+        cand_set: set = set()
+        L = len(t)
+        if L == 0:
+            return []
+        # 替换（substitution）：随机选取若干位置，替换为随机字符
+        sub_positions = random.sample(range(L), k=min(L, 4))
+        for i in sub_positions:
+            choices = [c for c in random.sample(alpha_chars, k=min(3, len(alpha_chars))) if c != t[i]]
+            for c in choices:
+                cand_set.add(t[:i] + c + t[i+1:])
+                if len(cand_set) >= max_variants:
+                    break
+            if len(cand_set) >= max_variants:
+                break
+        # 删除（deletion）：随机删除若干位置
+        if L >= 1:
+            del_positions = random.sample(range(L), k=min(L, 2))
+            for i in del_positions:
+                v = t[:i] + t[i+1:]
+                if v:
+                    cand_set.add(v)
+                if len(cand_set) >= max_variants:
+                    break
+        # 插入（insertion）：在随机位置插入随机字符
+        ins_positions = random.sample(range(L+1), k=min(L+1, 2))
+        for i in ins_positions:
+            for c in random.sample(alpha_chars, k=min(2, len(alpha_chars))):
+                cand_set.add(t[:i] + c + t[i:])
+                if len(cand_set) >= max_variants:
+                    break
+            if len(cand_set) >= max_variants:
+                break
+        # 相邻交换（transposition）：随机交换相邻字符
+        if L >= 2:
+            trans_positions = random.sample(range(L-1), k=min(L-1, 2))
+            for i in trans_positions:
+                v = t[:i] + t[i+1] + t[i] + t[i+2:]
+                cand_set.add(v)
+                if len(cand_set) >= max_variants:
+                    break
+        return list(cand_set)
+
+    near_set: set = set()
+    max_near_neg = 5
+    for key in present_keys:
+        t = original_text_map.get(key, key)
+        variants = _near_variants(t, max_variants=10)
+        for v in variants:
+            nv = norm_text(v)
+            if nv in used_neg_keys:
+                continue
+            near_set.add(v)
+            used_neg_keys.add(nv)
+            if len(near_set) >= max_near_neg:
+                break
+        if len(near_set) >= max_near_neg:
+            break
+    for s in near_set:
         samples.append({
             "image": image_name,
             "question": f"detect {s}",

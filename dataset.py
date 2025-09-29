@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# @Time    :   2025/09/29 10:34:10
+# @Author  :   lixumin1030@gmail.com
+# @FileName:   dataset.py
+
+
 import os
 import json
 from typing import List, Dict, Any
@@ -6,10 +12,7 @@ from torch.utils.data import Dataset
 
 
 class PointReaderData(Dataset):
-    """读取 output/annotations 下的 JSON 并生成两类 QA：
-    1) question: "detect {xx}", answer: 多个匹配子串的 OBB（每个 OBB 8 个 <loc_..>，用 <spe> 分隔）
-    2) question: "points out {xxx}", answer: 多个匹配子串的中心点（每个点 2 个 <loc_..>，用 <spe> 分隔）
-    返回字典包含 image_path, question, answer。
+    """读取 output/annotations 下的 JSON 
     """
 
     def __init__(self,images_dir="./output/images",
