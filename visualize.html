@@ -285,10 +285,15 @@
           <label><input id="t_showCoords" type="checkbox" /> 显示坐标</label>
         </div>
         <div class="form-group action-group col-12">
-          <button id="t_renderBtn" class="btn-accent" title="渲染" style="width: 100%;">
+          <div class="button-group" style="width: 100%;">
+            <button id="t_renderBtn" class="btn-accent" title="渲染" style="flex: 1;">
               <svg viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg>
               渲染 Token
-          </button>
+            </button>
+            <button id="t_clearBtn" class="btn-outline" title="清空" style="flex: 1;">
+              清空
+            </button>
+          </div>
         </div>
       </div>
       <div class="status-bar">
@@ -582,12 +587,22 @@
       baseName: 'sample_00000',
       index: 0,
       image: null,
-      tokensRaw: ''
+      tokensRaw: '',
+      // 新增：点击查询队列（支持多次点击）
+      clickQueries: []
     };
 
     function tSplitSegments(str) {
       if (!str) return [];
       return str.split(/(?:<sep>|<spe>)/).map(s => s.trim()).filter(Boolean);
+    }
+
+    // 新增：将像素坐标量化为 <loc_..> token
+    function tQuantizeToLocTokens(x, y, width, height) {
+      const qx = Math.max(0, Math.min(BINS_W - 1, Math.floor((x / width) * BINS_W)));
+      const qy = Math.max(0, Math.min(BINS_H - 1, Math.floor((y / height) * BINS_H)));
+      const tokens = `<loc_${qx}><loc_${qy}>`;
+      return { qx, qy, tokens };
     }
 
     function tDecodePointsFromTokens(segmentStr, width, height) {
@@ -630,42 +645,54 @@
 
       const raw = tState.tokensRaw || '';
       const segs = tSplitSegments(raw);
-      if (segs.length === 0) return;
+      if (segs.length > 0) {
+        const mode = $('t_mode').value;
+        const showCoords = $('t_showCoords').checked;
+        const colors = ['#22c55e', '#60a5fa', '#f97316', '#e879f9', '#f43f5e', '#14b8a6', '#a3e635', '#f59e0b'];
 
-      const mode = $('t_mode').value;
-      const showCoords = $('t_showCoords').checked;
-      const colors = ['#22c55e', '#60a5fa', '#f97316', '#e879f9', '#f43f5e', '#14b8a6', '#a3e635', '#f59e0b'];
-
-      ctx.save();
-      const segPointCounts = [];
-      segs.forEach((seg, si) => {
-        const { ids, pts } = tDecodePointsFromTokens(seg, canvas.width, canvas.height);
-        const color = colors[si % colors.length];
-        const isObb = (mode === 'obb') || (mode === 'auto' && ids.length >= 8 && ids.length % 8 === 0);
-        if (isObb) {
-          for (let k = 0; k + 7 < ids.length; k += 8) {
-            const subPts = pts.slice(k / 2, k / 2 + 4);
-            drawPolygon(ctx, subPts.map(p => [p[0], p[1]]), color);
-            const [cx, cy] = computeCentroid(subPts);
-            drawTag(ctx, `seg${si + 1}`, cx, cy, color, true);
-            if (showCoords) {
-              subPts.forEach(([x, y], idx) => drawTag(ctx, `${idx + 1}: ${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color));
+        ctx.save();
+        const segPointCounts = [];
+        segs.forEach((seg, si) => {
+          const { ids, pts } = tDecodePointsFromTokens(seg, canvas.width, canvas.height);
+          const color = colors[si % colors.length];
+          const isObb = (mode === 'obb') || (mode === 'auto' && ids.length >= 8 && ids.length % 8 === 0);
+          if (isObb) {
+            for (let k = 0; k + 7 < ids.length; k += 8) {
+              const subPts = pts.slice(k / 2, k / 2 + 4);
+              drawPolygon(ctx, subPts.map(p => [p[0], p[1]]), color);
+              const [cx, cy] = computeCentroid(subPts);
+              drawTag(ctx, `seg${si + 1}`, cx, cy, color, true);
+              if (showCoords) {
+                subPts.forEach(([x, y], idx) => drawTag(ctx, `${idx + 1}: ${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color));
+              }
             }
+            segPointCounts.push(Math.floor(ids.length / 2));
+          } else {
+            pts.forEach(([x, y]) => {
+              drawDot(ctx, x, y, color);
+              if (showCoords) drawTag(ctx, `${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color);
+            });
+            segPointCounts.push(pts.length);
           }
-          segPointCounts.push(Math.floor(ids.length / 2));
-        } else {
-          pts.forEach(([x, y]) => {
-            drawDot(ctx, x, y, color);
-            if (showCoords) drawTag(ctx, `${x.toFixed(1)},${y.toFixed(1)}`, x + 8, y - 8, color);
-          });
-          segPointCounts.push(pts.length);
-        }
-      });
-      ctx.restore();
+        });
+        ctx.restore();
 
-      const tokenCount = segs.reduce((s, seg) => s + ((seg.match(LOC_RE) || []).length), 0);
-      const ptsCount = segPointCounts.reduce((a,b)=>a+b,0);
-      $('t_status').textContent = `已渲染 ${segs.length} 段；Token 数 ${tokenCount}；点数 ${ptsCount}`;
+        const tokenCount = segs.reduce((s, seg) => s + ((seg.match(LOC_RE) || []).length), 0);
+        const ptsCount = segPointCounts.reduce((a,b)=>a+b,0);
+        $('t_status').textContent = `已渲染 ${segs.length} 段；Token 数 ${tokenCount}；点数 ${ptsCount}`;
+      }
+
+      // 新增：渲染点击查询的结果覆盖层
+      if (Array.isArray(tState.clickQueries) && tState.clickQueries.length > 0) {
+        ctx.save();
+        tState.clickQueries.forEach((q) => {
+          const color = q.pending ? '#9ca3af' : (q.result === 'None' ? '#ef4444' : '#22c55e');
+          drawDot(ctx, q.x, q.y, color);
+          const tagText = q.pending ? '…' : String(q.result);
+          drawTag(ctx, tagText, q.x + 8, q.y - 8, color);
+        });
+        ctx.restore();
+      }
     }
 
     async function tLoadSample(baseName) {
@@ -769,15 +796,75 @@
       }
     }
 
+    // 新增：点击图片进行 "what text on point <loc_xx><loc_xx>" 查询
+    async function tOnCanvasClick(ev) {
+      if (!tState.image) return;
+      const canvas = $('t_canvas');
+      const rect = canvas.getBoundingClientRect();
+      const x = (ev.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (ev.clientY - rect.top) * (canvas.height / rect.height);
+      const { qx, qy, tokens } = tQuantizeToLocTokens(x, y, canvas.width, canvas.height);
+      const prompt = `what text on point ${tokens}`.trim();
+      const baseName = tState.baseName || 'sample_00000';
+      const imgPath = `output/images/${baseName}.png`;
+
+      // 记录 pending 点击
+      const q = { x, y, qx, qy, tokens, prompt, result: undefined, pending: true };
+      tState.clickQueries.push(q);
+      tDraw();
+      $('t_status').textContent = `查询: ${prompt}`;
+
+      try {
+        const imgResp = await fetch(imgPath);
+        if (!imgResp.ok) throw new Error(`无法读取图片: ${imgPath}`);
+        const blob = await imgResp.blob();
+        const b64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('图片读取失败'));
+          reader.onloadend = () => {
+            const dataUrl = String(reader.result || '');
+            const base64 = dataUrl.split(',')[1] || '';
+            resolve(base64);
+          };
+          reader.readAsDataURL(blob);
+        });
+
+        const resp = await fetch('http://172.20.253.222:20070/point-reader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_base64: b64, prompt })
+        });
+        if (!resp.ok) throw new Error(`API 请求失败: ${resp.status}`);
+        const json = await resp.json();
+        const result = (json && json.data && json.data.generated_text) ? json.data.generated_text : 'None';
+        q.result = result || 'None';
+        q.pending = false;
+        // 在状态栏显示结果
+        $('t_status').textContent = `结果: ${prompt} -> ${q.result}`;
+        tDraw();
+      } catch (err) {
+        console.error(err);
+        q.result = 'None';
+        q.pending = false;
+        $('t_status').textContent = err.message || String(err);
+        tDraw();
+      }
+    }
+
+    function tClear() {
+      tState.tokensRaw = '';
+      tState.clickQueries = [];
+      $('t_status').textContent = '已清空';
+      tDraw();
+    }
+
     $('t_loadBtn').addEventListener('click', tOnLoadClick);
     $('t_renderBtn').addEventListener('click', tRequestAndRenderFromPrompt);
-    $('t_prevBtn').addEventListener('click', tPrev);
-    $('t_nextBtn').addEventListener('click', tNext);
-    /* 原先的 t_tokens 输入事件不再需要 */
+    $('t_task').addEventListener('change', tRequestAndRenderFromPrompt);
+    $('t_clearBtn').addEventListener('click', tClear);
     $('t_mode').addEventListener('change', tDraw);
     $('t_showCoords').addEventListener('change', tDraw);
-    $('t_sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tOnLoadClick(); });
-    
+    $('t_canvas').addEventListener('click', tOnCanvasClick);
 
     // =====================================================================
     // ===== INITIALIZATION ================================================
