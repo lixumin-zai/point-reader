@@ -4,33 +4,36 @@
 # @FileName:   test.py
 
 
+import logging
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForCausalLM 
 import torch
 import time
 
-model_path = "./ckpt"
-model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).to("cpu")
-processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
+logger = logging.getLogger(__name__)
 
-prompt = "detect 456"
+class PointReader:
+    def __init__(self, model_path):
+        self.model_path = model_path
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = AutoModelForCausalLM.from_pretrained(model_path, trust_remote_code=True).to(self.device)
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True)
 
-url = "./sample_00003.png"
-image = Image.open(url).convert("RGB")
+    def __call__(self, prompt, image):
+        inputs = self.processor(text=prompt, images=image, return_tensors="pt").to(self.device)
 
-inputs = processor(text=prompt, images=image, return_tensors="pt").to("cpu")
+        with torch.no_grad():
+            st = time.time()
+            generated_ids = self.model.generate(
+                input_ids=inputs["input_ids"],
+                pixel_values=inputs["pixel_values"],
+                max_new_tokens=128,
+                do_sample=False,
+                num_beams=3
+            )
+            logger.info(f"生成时间: {time.time() - st}")
+            generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+            logger.info(f"生成文本: {generated_text}")
+        return generated_text
 
-with torch.no_grad():
-    st = time.time()
-    generated_ids = model.generate(
-        input_ids=inputs["input_ids"],
-        pixel_values=inputs["pixel_values"],
-        max_new_tokens=128,
-        do_sample=False,
-        num_beams=3
-    )
-    print(time.time() - st)
 
-generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-print(generated_ids.shape)
-print(generated_text)

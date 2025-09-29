@@ -263,8 +263,8 @@
           </div>
         </div>
         <div class="form-group col-3 col-lg-5">
-          <label for="t_tokens">Token 输入 (支持 &lt;sep&gt;/&lt;spe&gt; 分段)</label>
-          <input id="t_tokens" type="text" placeholder="例如: <loc_468><loc_558>..." />
+          <label for="t_prompt">Prompt 输入</label>
+          <input id="t_prompt" type="text" placeholder="例如: points out ABC" />
         </div>
         <div class="form-group col-1 col-lg-3">
           <label for="t_mode">解析模式</label>
@@ -575,6 +575,7 @@
       baseName: 'sample_00000',
       index: 0,
       image: null,
+      tokensRaw: ''
     };
 
     function tSplitSegments(str) {
@@ -620,7 +621,7 @@
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(tState.image, 0, 0);
 
-      const raw = $('t_tokens').value || '';
+      const raw = tState.tokensRaw || '';
       const segs = tSplitSegments(raw);
       if (segs.length === 0) return;
 
@@ -715,11 +716,56 @@
 
     const tDebouncedDraw = debounce(tDraw, 150);
 
+    // 将 prompt 发送到 Point-Reader API，获取生成的 tokens 并渲染
+    async function tRequestAndRenderFromPrompt() {
+      if (!tState.image) {
+        $('t_status').textContent = '请先加载样例图片';
+        return;
+      }
+      const prompt = ($('t_prompt').value || '').trim();
+      if (!prompt) {
+        $('t_status').textContent = '请输入 Prompt';
+        return;
+      }
+      const baseName = tState.baseName || 'sample_00000';
+      const imgPath = `output/images/${baseName}.png`;
+      try {
+        $('t_status').textContent = '正在请求 API 生成 tokens...';
+        const imgResp = await fetch(imgPath);
+        if (!imgResp.ok) throw new Error(`无法读取图片: ${imgPath}`);
+        const blob = await imgResp.blob();
+        const b64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('图片读取失败'));
+          reader.onloadend = () => {
+            const dataUrl = String(reader.result || '');
+            const base64 = dataUrl.split(',')[1] || '';
+            resolve(base64);
+          };
+          reader.readAsDataURL(blob);
+        });
+
+        const resp = await fetch('http://172.20.253.222:20070/point-reader', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_base64: b64, prompt })
+        });
+        if (!resp.ok) throw new Error(`API 请求失败: ${resp.status}`);
+        const json = await resp.json();
+        const gen = (json && json.data && json.data.generated_text) ? json.data.generated_text : '';
+        tState.tokensRaw = gen || '';
+        tDraw();
+      } catch (err) {
+        console.error(err);
+        $('t_status').textContent = err.message || String(err);
+      }
+    }
+
     $('t_loadBtn').addEventListener('click', tOnLoadClick);
-    $('t_renderBtn').addEventListener('click', tDraw);
+    $('t_renderBtn').addEventListener('click', tRequestAndRenderFromPrompt);
     $('t_prevBtn').addEventListener('click', tPrev);
     $('t_nextBtn').addEventListener('click', tNext);
-    $('t_tokens').addEventListener('input', tDebouncedDraw);
+    /* 原先的 t_tokens 输入事件不再需要 */
     $('t_mode').addEventListener('change', tDraw);
     $('t_showCoords').addEventListener('change', tDraw);
     $('t_sampleInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') tOnLoadClick(); });
