@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from setup_logging import setup_logging, request_id_ctx_var, generate_request_id, set_request_id, get_request_id
-from test import PointReader
+from inference import PointReader
  
 
 # 全局初始化logging

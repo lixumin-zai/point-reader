@@ -263,8 +263,15 @@
           </div>
         </div>
         <div class="form-group col-3 col-lg-5">
-          <label for="t_prompt">Prompt 输入</label>
-          <input id="t_prompt" type="text" placeholder="例如: points out ABC" />
+          <label for="t_text">任务字符/字符串</label>
+          <input id="t_text" type="text" placeholder="例如: ABC 或 A" />
+        </div>
+        <div class="form-group col-1 col-lg-3">
+          <label for="t_task">任务类型</label>
+          <select id="t_task">
+            <option value="points">points out</option>
+            <option value="detect">detect</option>
+          </select>
         </div>
         <div class="form-group col-1 col-lg-3">
           <label for="t_mode">解析模式</label>
@@ -716,21 +723,22 @@
 
     const tDebouncedDraw = debounce(tDraw, 150);
 
-    // 将 prompt 发送到 Point-Reader API，获取生成的 tokens 并渲染
     async function tRequestAndRenderFromPrompt() {
       if (!tState.image) {
         $('t_status').textContent = '请先加载样例图片';
         return;
       }
-      const prompt = ($('t_prompt').value || '').trim();
-      if (!prompt) {
-        $('t_status').textContent = '请输入 Prompt';
+      const text = ($('t_text').value || '').trim();
+      const task = ($('t_task').value || 'points').trim();
+      if (!text) {
+        $('t_status').textContent = '请输入字符/字符串';
         return;
       }
+      const prompt = task === 'detect' ? `detect ${text}` : `points out ${text}`;
       const baseName = tState.baseName || 'sample_00000';
       const imgPath = `output/images/${baseName}.png`;
       try {
-        $('t_status').textContent = '正在请求 API 生成 tokens...';
+        $('t_status').textContent = `正在调用任务: ${prompt}`;
         const imgResp = await fetch(imgPath);
         if (!imgResp.ok) throw new Error(`无法读取图片: ${imgPath}`);
         const blob = await imgResp.blob();
