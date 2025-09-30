@@ -3,3 +3,5 @@ output
 ckpt
 images
 *.log
+.DS_Store
+temp
